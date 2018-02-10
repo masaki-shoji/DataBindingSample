@@ -1,27 +1,135 @@
+// Applies jacoco plugin
 apply plugin: 'jacoco'
 
 jacoco {
+    // Sets jacoco's version
     toolVersion = '0.7.9'
 }
 
-task jacoco(type: JacocoReport, dependsOn: "test") {
-    logger.debug("task jacoco start")
-    group = 'test'
-    description = 'coverages the source code.'
-    reports {
-        xml.enabled = true
-        html.enabled = true
-        html {
-            destination "${project.rootDir}/build/reports/jacoco/${project.name}"
-        }
-    }
-    classDirectories = fileTree(
-            dir: './build/intermediates/classes/debug',
-            excludes: ['**/R.class',
-                       '**/R$*.class',
-                       '**/BuildConfig.class',
-            ])
-    sourceDirectories = files('src/main/java', 'src/main/kotlin')
-    executionData = files('build/jacoco/testDebugUnitTest.exec')
+// Gets all the app's buildTypes
+def getBuildTypes() {
+    return android.buildTypes.collect { type -> type.name }
 }
 
+// Gets all the app's productFlavors
+def getFlavors() {
+    return android.productFlavors.collect { flavor -> flavor.name } ?: ['']
+}
+
+// Gets the directories for coverage
+def getCoverageDir(String flavorName, String buildType) {
+    if (flavorName) {
+        return [
+                "src/main/java",
+                "src/main/kotlin",
+                "src/$flavorName/java",
+                "src/$flavorName/kotlin",
+                "src/$buildType/java",
+                "src/$buildType/kotlin"
+        ]
+    } else {
+        return [
+                "src/main/java",
+                "src/main/kotlin",
+                "src/$buildType/java",
+                "src/$buildType/kotlin"
+        ]
+    }
+}
+
+// Defines the classes excluded on coverage
+ext.excludeDir = [
+        '**/R.class',
+        '**/BR.class',
+        '**/R$*.class',
+        '**/*$ViewInjector*.*',
+        '**/*$ViewBinder*.*',
+        '**/BuildConfig.*',
+        '**/Manifest*.*',
+        '**/*$Lambda$*.class',
+        '**/databinding/**/*.class'
+]
+
+// Checks if a flavor name is invalid
+def isInvalidFlavorName(String flavor) {
+    assert flavor != null
+    return flavor == ''
+}
+
+// Gets the source name
+def getSourceName(String flavor, String buildType) {
+    if (isInvalidFlavorName(flavor)) {
+        return buildType
+    } else {
+        return "${flavor}${buildType.capitalize()}"
+    }
+}
+
+// Gets the source path
+def getSourcePath(String flavor, String buildType) {
+    if (isInvalidFlavorName(flavor)) {
+        return buildType
+    } else {
+        return "${flavor}/${buildType}"
+    }
+}
+
+// Creates tasks by buildType
+def createTaskByBuildType(String buildType, String flavor) {
+    def sourceName = getSourceName(flavor, buildType)
+    def sourcePath = getSourcePath(flavor, buildType)
+    def testTaskName = "test${sourceName.capitalize()}UnitTest"
+    // Create coverage task of form 'testFlavorTypeCoverage' depending on 'testFlavorTypeUnitTest'
+    task "${testTaskName}Coverage"(type: JacocoReport, dependsOn: "$testTaskName") {
+        group = "Reporting"
+        description = "Generate Jacoco coverage reports on the ${sourceName.capitalize()} build."
+        def javaFiles = fileTree(
+                dir: "${project.buildDir}/intermediates/classes/${sourcePath}",
+                excludes: excludeDir
+        )
+
+        def kotlinFiles = fileTree(
+                dir: "${project.buildDir}/tmp/kotlin-classes/${sourceName}",
+                excludes: excludeDir
+        )
+
+        classDirectories = files(javaFiles, kotlinFiles)
+        def coverageSourceDirs = getCoverageDir(flavor, buildType)
+        additionalSourceDirs = files(coverageSourceDirs)
+        sourceDirectories = files(coverageSourceDirs)
+        executionData = files("${project.buildDir}/jacoco/${testTaskName}.exec")
+        reports {
+            xml.enabled = true
+            html.enabled = true
+            html {
+                destination file("${project.buildDir}/reports/jacoco/${project.name}")
+            }
+        }
+    }
+}
+
+// Creates tasks by productFlavor
+def createTaskByFlavor(List<String> buildTypes, String flavor) {
+    assert flavor != null
+
+    buildTypes.each { buildType ->
+        createTaskByBuildType(buildType, flavor)
+    }
+
+}
+
+// Creates tasks for coverage
+def createTask(List<String> flavors, List<String> buildTypes) {
+    if (!flavors) {
+        return
+    } else {
+        createTaskByFlavor(buildTypes, flavors.first())
+        return createTask(flavors.drop(1), buildTypes)
+    }
+}
+
+project.afterEvaluate {
+    def flavors = getFlavors()
+    def buildTypes = getBuildTypes()
+    createTask(flavors, buildTypes)
+}
