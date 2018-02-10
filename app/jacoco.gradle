@@ -1,0 +1,27 @@
+apply plugin: 'jacoco'
+
+jacoco {
+    toolVersion = '0.7.9'
+}
+
+task jacoco(type: JacocoReport, dependsOn: "test") {
+    logger.debug("task jacoco start")
+    group = 'test'
+    description = 'coverages the source code.'
+    reports {
+        xml.enabled = true
+        html.enabled = true
+        html {
+            destination "${project.rootDir}/build/reports/jacoco/${project.name}"
+        }
+    }
+    classDirectories = fileTree(
+            dir: './build/intermediates/classes/debug',
+            excludes: ['**/R.class',
+                       '**/R$*.class',
+                       '**/BuildConfig.class',
+            ])
+    sourceDirectories = files('src/main/java', 'src/main/kotlin')
+    executionData = files('build/jacoco/testDebugUnitTest.exec')
+}
+
